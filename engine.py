@@ -8,6 +8,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel
+from langchain.retrievers.multi_query import MultiQueryRetriever
 
 load_dotenv()
 
@@ -79,11 +80,17 @@ class RAGEngine:
             else:
                 raise ValueError("Vectorstore not initialized. Load documents first.")
             
-        retriever = self.vectorstore.as_retriever()
+        base_retriever = self.vectorstore.as_retriever()
+        
+        # Analyzer LLM creates parallel sub-queries for complex inputs
+        retriever = MultiQueryRetriever.from_llm(
+            retriever=base_retriever,
+            llm=self.llm
+        )
         
         system_prompt = (
-            "You are a helpful AI assistant"
-            "Use the following pieces of retrieved context to answer the question and also tell the source of answer like if there are so many files or resources then tell the file name from which the answer is taken "
+            "You are a helpful AI assistant. "
+            "Use the following pieces of retrieved context to answer the question, and carefully cite the source file names for your answers if multiple files or resources are used. "
             "If you don't know the answer, just say that you don't know, don't try to make up an answer. "
             "Respond in a friendly and professional manner."
             "\n\n"
@@ -114,4 +121,4 @@ class RAGEngine:
             answer=format_for_prompt | generation_chain
         )
         
-        return rag_chain.invoke(user_input)
+        return rag_chain.stream(user_input)
