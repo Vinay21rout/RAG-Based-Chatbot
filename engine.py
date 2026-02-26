@@ -7,7 +7,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableParallel
 
 load_dotenv()
 
@@ -82,8 +82,8 @@ class RAGEngine:
         retriever = self.vectorstore.as_retriever()
         
         system_prompt = (
-            "You are a helpful AI assistant for an e-commerce website. "
-            "Use the following pieces of retrieved context to answer the question. "
+            "You are a helpful AI assistant"
+            "Use the following pieces of retrieved context to answer the question and also tell the source of answer like if there are so many files or resources then tell the file name from which the answer is taken "
             "If you don't know the answer, just say that you don't know, don't try to make up an answer. "
             "Respond in a friendly and professional manner."
             "\n\n"
@@ -95,12 +95,23 @@ class RAGEngine:
             ("human", "{input}"),
         ])
         
-        # LCEL RAG pipeline
-        rag_chain = (
-            {"context": retriever | self.format_docs, "input": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
+        # Setup context and question mapping
+        setup_and_retrieval = RunnableParallel(
+            {"context": retriever, "input": RunnablePassthrough()}
+        )
+        
+        # Format the retrieved documents for the prompt
+        format_for_prompt = {
+            "context": lambda x: self.format_docs(x["context"]),
+            "input": lambda x: x["input"]
+        }
+        
+        # Add the generation step
+        generation_chain = prompt | self.llm | StrOutputParser()
+        
+        # Combine everything to return both answer and source documents
+        rag_chain = setup_and_retrieval.assign(
+            answer=format_for_prompt | generation_chain
         )
         
         return rag_chain.invoke(user_input)
